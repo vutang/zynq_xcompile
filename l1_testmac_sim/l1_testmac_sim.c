@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-10-23 10:04:12
+* @Last Modified time: 2018-10-23 11:10:19
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -16,6 +16,7 @@
 
 // #include "ac_ltePhyL2Api.h"
 #include "logger.h"
+#include "fapi_msg.h"
 
 #define LOGDIR "/home/root/l1_testmac_sim.log"
 #define ETHER_TYPE	0x0800
@@ -29,17 +30,16 @@
 /*Send and Recv Buffer*/
 char sendbuf[BUF_SIZ], recvbuf[BUF_SIZ];
 
-const char dest_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x1E, 0x53};
-const char eth1_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x00, 0x01};
 
-/*Define fapi_header*/
-struct fapi_header {
-	uint8_t fapi_type;
-	uint8_t msg_id;
-	uint8_t msg_vendor_len;
-	uint16_t msg_len;
-	char msg_payload[200];
-};
+/*MAC list:
+	b0:83:fe:bb:36:0b: vux's PC eth0
+	00:0A:35:00:1E:53: zc706 eth0*/
+/*Destination Machine Mac*/
+const char dest_mac[6] = {0xb0, 0x83, 0xfe, 0xbb, 0x36, 0x0b};
+
+/*Local interface mac*/
+const char eth0_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x1E, 0x53};
+const char eth1_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x00, 0x01};
 
 void testLog() {
 	printf("Test LOG configuration\n");
@@ -56,6 +56,59 @@ void software_header(void) {
 	printf("--------------------------\n");
 }
 
+void rx_handler(void* arg) {
+	int sockfd_rx;
+	int ret, i, sockopt;
+	ssize_t numbytes;
+	struct ifreq ifopts;	/* set promiscuous mode */
+	struct sockaddr_storage their_addr;
+	uint8_t recvbuf[BUF_SIZ];
+	char ifName[IFNAMSIZ];
+
+	strcpy(ifName, DEFAULT_IF);
+
+	/* Header structures */
+	struct ether_header *eh = (struct ether_header *) recvbuf;
+
+	/* Open PF_PACKET socket, listening for EtherType ETHER_TYPE */
+	if ((sockfd_rx = socket(PF_PACKET, SOCK_RAW, htons(ETHER_TYPE))) == -1) {
+		perror("listener: socket");	
+		return;
+	}
+
+	/* Set interface to promiscuous mode - do we need to do this every time? */
+	strncpy(ifopts.ifr_name, ifName, IFNAMSIZ-1);
+	ioctl(sockfd_rx, SIOCGIFFLAGS, &ifopts);
+	ifopts.ifr_flags |= IFF_PROMISC;
+	ioctl(sockfd_rx, SIOCSIFFLAGS, &ifopts);
+
+	/* Allow the socket to be reused - incase connection is closed prematurely */
+	if (setsockopt(sockfd_rx, SOL_SOCKET, SO_REUSEADDR, &sockopt, sizeof sockopt) == -1) {
+		perror("setsockopt");
+		close(sockfd_rx);
+		exit(EXIT_FAILURE);
+	}
+	/* Bind to device */
+	if (setsockopt(sockfd_rx, SOL_SOCKET, SO_BINDTODEVICE, ifName, IFNAMSIZ-1) == -1)	{
+		perror("SO_BINDTODEVICE");
+		close(sockfd_rx);
+		exit(EXIT_FAILURE);
+	}
+
+	while (1) {
+		numbytes = recvfrom(sockfd_rx, recvbuf, BUF_SIZ, 0, NULL, NULL);
+		/* Check the packet is for me */
+		if (memcmp(&eh->ether_dhost[0], &eth0_mac[0], ETH_ALEN) != 0) 
+			continue;
+		else {
+			LOG_INFO("got_msg ...");
+		}
+	}
+
+	close(sockfd_rx);
+	return;
+}
+
 int main (int argc, char *argv[]) {
 	/*Socket file description*/
 	int sockfd_tx;
@@ -65,6 +118,10 @@ int main (int argc, char *argv[]) {
 	struct ifreq tx_if_idx, tx_if_mac;
 
 	char ifName[IFNAMSIZ];
+
+	int tx_len;
+
+	pthread_t rx_thread; /*Hold rx thread*/
 
 	config_log(LOGDIR, 0x1f, 3);
 	testLog();
@@ -103,7 +160,8 @@ int main (int argc, char *argv[]) {
 	PRINT_MAC(&eh->ether_dhost[0]);
 
 	/* Ethertype field */
-	eh->ether_type = htons(ETH_P_IP);
+	// eh->ether_type = htons(ETH_P_IP);
+	eh->ether_type = htons(0xF5F5);
 
 	/* Index of the network device */
 	socket_address.sll_ifindex = tx_if_idx.ifr_ifindex;
@@ -113,8 +171,19 @@ int main (int argc, char *argv[]) {
 	memcpy(&socket_address.sll_addr[0], &dest_mac[0], ETH_ALEN);
 	/* Send packet */
 
-	// while (1) {
+	LOG_INFO("Open RX Thread");
+	pthread_create(&rx_thread, NULL, (void *) &rx_handler, NULL);
 
-	// }
+	while (1) {
+		tx_len = sizeof(struct ether_header);
+		tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_PARAM_REQ);
+		LOG_INFO("Send msg to: %d", tx_len);
+		PRINT_MAC(dest_mac);
+		if (sendto(sockfd_tx, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, 
+			sizeof(struct sockaddr_ll)) < 0) {
+			LOG_ERROR("Send msg failed");
+		}
+		sleep(1);
+	}
 	return 0;
 }
