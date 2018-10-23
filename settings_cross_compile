@@ -1,0 +1,16 @@
+export LTE_ROOT=`pwd`
+export PLATFORM=zynq
+
+export KERNEL_IPC=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/arm-xilinx-linux-gnueabi/libc/usr/include/linux/
+export KERNEL_PATH=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/arm-xilinx-linux-gnueabi/libc/usr/include/linux/
+
+export IPC_SHM_HEADER=$LTE_ROOT/../3rd_lib/libipc/ipc_1_5_inc
+export THIRDPARTY_LIB=$LTE_ROOT/../3rd_lib/outputlib
+
+export LTE_CC=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-gcc
+export LTE_MAKE_BIN=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-gcc
+export LTE_RANLIB=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-ranlib
+export CROSS_COMPILE=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-gcc
+export LTE_AR=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-ar
+export LTE_LD=/opt/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-ld
+
