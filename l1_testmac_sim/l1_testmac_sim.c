@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-10-23 09:34:43
+* @Last Modified time: 2018-10-23 10:04:12
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -14,9 +14,32 @@
 #include <net/if.h>
 #include <netinet/ether.h>
 
+// #include "ac_ltePhyL2Api.h"
 #include "logger.h"
 
 #define LOGDIR "/home/root/l1_testmac_sim.log"
+#define ETHER_TYPE	0x0800
+#define DEFAULT_IF	"eth0"
+#define BUF_SIZ		1024
+
+#define PRINT_MAC(mac) LOG_INFO("%02x:%02x:%02x:%02x:%02x:%02x", \
+		*mac, *(mac+1), *(mac+2), *(mac+3), \
+		*(mac+4), *(mac+5));
+
+/*Send and Recv Buffer*/
+char sendbuf[BUF_SIZ], recvbuf[BUF_SIZ];
+
+const char dest_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x1E, 0x53};
+const char eth1_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x00, 0x01};
+
+/*Define fapi_header*/
+struct fapi_header {
+	uint8_t fapi_type;
+	uint8_t msg_id;
+	uint8_t msg_vendor_len;
+	uint16_t msg_len;
+	char msg_payload[200];
+};
 
 void testLog() {
 	printf("Test LOG configuration\n");
@@ -33,8 +56,65 @@ void software_header(void) {
 	printf("--------------------------\n");
 }
 
-int main () {
+int main (int argc, char *argv[]) {
+	/*Socket file description*/
+	int sockfd_tx;
+	/*Ethernet header*/
+	struct ether_header *eh = (struct ether_header *) sendbuf;
+	struct sockaddr_ll socket_address;
+	struct ifreq tx_if_idx, tx_if_mac;
+
+	char ifName[IFNAMSIZ];
+
 	config_log(LOGDIR, 0x1f, 3);
 	testLog();
+
+	/* Get interface name */
+	if (argc > 1)
+		strcpy(ifName, argv[1]);
+	else
+		strcpy(ifName, DEFAULT_IF);
+
+	/* Open RAW socket to send on */
+	if ((sockfd_tx = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1) {
+	    perror("socket");
+	}
+
+	/* Get the index of the interface to send on */
+	memset(&tx_if_idx, 0, sizeof(struct ifreq));
+	strncpy(tx_if_idx.ifr_name, ifName, IFNAMSIZ-1);
+	if (ioctl(sockfd_tx, SIOCGIFINDEX, &tx_if_idx) < 0)
+	    perror("SIOCGIFINDEX");
+
+	/* Get the MAC address of the interface to send on */
+	memset(&tx_if_mac, 0, sizeof(struct ifreq));
+	strncpy(tx_if_mac.ifr_name, ifName, IFNAMSIZ-1);
+	if (ioctl(sockfd_tx, SIOCGIFHWADDR, &tx_if_mac) < 0)
+	    perror("SIOCGIFHWADDR");
+
+	/* Construct the Ethernet header */
+	memset(sendbuf, 0, BUF_SIZ);
+	/* Ethernet header */
+	memcpy(&eh->ether_shost[0], &tx_if_mac.ifr_hwaddr.sa_data[0], ETH_ALEN);
+	LOG_INFO("SRC mac: ");
+	PRINT_MAC(&eh->ether_shost[0]);
+	memcpy(&eh->ether_dhost[0], &dest_mac[0], ETH_ALEN);
+	LOG_INFO("DST mac: ");
+	PRINT_MAC(&eh->ether_dhost[0]);
+
+	/* Ethertype field */
+	eh->ether_type = htons(ETH_P_IP);
+
+	/* Index of the network device */
+	socket_address.sll_ifindex = tx_if_idx.ifr_ifindex;
+	/* Address length*/
+	socket_address.sll_halen = ETH_ALEN;
+	/* Destination MAC */
+	memcpy(&socket_address.sll_addr[0], &dest_mac[0], ETH_ALEN);
+	/* Send packet */
+
+	// while (1) {
+
+	// }
 	return 0;
 }
