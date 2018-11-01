@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-01 14:58:57
+* @Last Modified time: 2018-11-01 17:58:30
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -326,10 +326,9 @@ int main (int argc, char *argv[]) {
 		else if ((fapi_state == WAIT_INDICATION)) {
 			if ((got_msg == 1) && (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND)) {
 				LOG_INFO("Get Subframe indication");
+				tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_DLCFG_REQ);
 				got_msg = 0;
 			}
-			sleep(1);
-			continue;
 		}
 
 		LOG_INFO("Send msg (%d) to: ", tx_len);
