@@ -4,8 +4,8 @@ AR=$(TOOL_CHAIN)/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-
 LD=$(TOOL_CHAIN)/tools/linux-i386/arm-xilinx-linux-gnueabi/bin/arm-xilinx-linux-gnueabi-ld
 
 APP = l1_testmac_sim
-LDLIBS= 
-APP_OBJS = l1_testmac_sim.o logger.o
+LDLIBS= -lpthread
+APP_OBJS = l1_testmac_sim.o logger.o fapi_msg.o
 
 all: build
 

@@ -33,9 +33,18 @@
 
 /*Define fapi_header*/
 struct fapi_header {
-	uint8_t fapi_type;
+	// uint8_t fapi_type;
 	uint8_t msg_id;
 	uint8_t msg_vendor_len;
 	uint16_t msg_len;
 	char msg_payload[200];
+};
+
+/*Transaction State*/
+enum fapi_msg_send_st {
+	IDLE,
+	CONFIGURED,
+	RUNNING,
+	WAIT_INDICATION,
+	FAPI_STATE_MAX
 };
