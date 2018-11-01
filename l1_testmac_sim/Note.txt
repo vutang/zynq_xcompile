@@ -1,0 +1,11 @@
+TCP Dump Useful commands:
+	* tcpdump -i eth0 ether dst <DSTMAC>
+		Dump msg has dst mac is DSTMAC 
+	* -i to specify interface
+	* -e to print link level header (Ethernet header)
+	* -v to show ipv4 header
+
+	https://www.rationallyparanoid.com/articles/tcpdump.html
+
+* tcpdump -e -i eth0 ether dst b0:83:fe:bb:36:0b
+	dump in zynq
