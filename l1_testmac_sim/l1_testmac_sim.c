@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 09:52:02
+* @Last Modified time: 2018-11-03 12:36:10
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -34,7 +34,7 @@ char recvbuf[BUF_SIZ];
 	00:0A:35:00:1E:53: zc706 eth0*/
 /*Destination Machine Mac*/
 // char dest_mac[6] = {0xb0, 0x83, 0xfe, 0xbb, 0x36, 0x0b};
-char dest_mac[6] = {0xda, 0x02, 0x03, 0x04, 0x05, 0x06};
+// char dest_mac[6] = {0xda, 0x02, 0x03, 0x04, 0x05, 0x06};
 
 /*Local interface mac*/
 const char eth0_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x1E, 0x53};
@@ -44,6 +44,7 @@ int8_t g_dstmac_change = 0, g_test_tx = 0;
 int8_t g_debug_flag = 0;
 int rcv_msg_id = -1;
 int got_msg = 0;
+int wait_time = 1000000;
 
 /*Hold main FAPI State*/
 int fapi_state = IDLE;
@@ -86,8 +87,10 @@ int is_valid_macaddr(char *mac_str, char *mac_arr_ret) {
 
 void pri_usage(int argc, char **argv) {
 	printf("usage: %s --opt [arg]\n", argv[0]);
-	// printf("\t--help: print usage\n");
-	// printf("\t--serip <ipserver>\n");
+	printf("\t--help: print usage\n");
+	printf("\t--sleep-time/-t <time in usecond>: setting processing time\n");
+	printf("\t--debug/-d: printf debug\n");
+	printf("\t--dest/-D <MAC Address>; default destmac is da:02:03:04:05:06\n");
 	// printf("\t--test/-t\n");
 }
 
@@ -97,14 +100,15 @@ void get_args(int argc, char **argv) {
 	while (1) {
 		static struct option long_options[] = {
 			{"help", no_argument, 0, 'h'},
-			{"test", no_argument, 0, 't'},
+			// {"test", no_argument, 0, 't'},
 			{"dest", required_argument, 0, 'D'},
 			{"debug", no_argument, 0, 'd'},
+			{"sleep-time", required_argument, 0, 't'},
 			{0, 0, 0, 0}
 		};
 	      /* getopt_long stores the option index here. */
 		int option_index = 0;
-		c = getopt_long (argc, argv, "htD:d", long_options, &option_index);
+		c = getopt_long (argc, argv, "hD:dt:", long_options, &option_index);
 		/* Detect the end of the options. */
 		if (c == -1)
 			break;
@@ -113,17 +117,16 @@ void get_args(int argc, char **argv) {
 			case 'h':
 				pri_usage(argc, argv);
 				exit(0);
-				break;
-			case 't':
-				g_test_tx = 1;
-				break;
+			// case 't':
+			// 	g_test_tx = 1;
+			// 	break;
 			case 'D':
 				printf ("option -d with vl `%s'\n", optarg);
 				if (is_valid_macaddr(optarg, dest_mac)) {
 					PRINT_MAC(dest_mac);
 				}
 				else {
-					LOG_ERROR("invalid dest mac\n");
+					printf("invalid dest mac\n");
 					exit(0);
 				}
 
@@ -131,6 +134,10 @@ void get_args(int argc, char **argv) {
 			case 'd':
 				printf("Debug flag\n");
 				g_debug_flag = 1;
+				break;
+			case 't':
+				printf("Setup sleep time in FSM, optarg: %s\n", optarg);
+				wait_time = strtol(optarg, NULL, 0);
 				break;
 			case '?':
 				/* getopt_long already printed an error message. */
@@ -183,15 +190,20 @@ void rx_handler(void* arg) {
 	}
 
 	while (1) {
+		if (got_msg == 1) {
+			sleep(1);
+			continue;
+		}
 		numbytes = recvfrom(sockfd_rx, recvbuf, BUF_SIZ, 0, NULL, NULL);
 		/* Check the packet is for me */
 		if (memcmp(&eh->ether_dhost[0], &eth0_mac[0], ETH_ALEN) != 0) 
 			continue;
 		else {
+			rcv_msg_id = -1;
 			rcv_msg_id = handle_fapi_msg(recvbuf + sizeof(struct ether_header));
-			LOG_DEBUG("got_msg id = %d", rcv_msg_id);
 			if (rcv_msg_id < 0)
 				continue;
+			LOG_DEBUG("got_msg id = %d, %s", rcv_msg_id, get_msg_type_name_(rcv_msg_id));
 			got_msg = 1;	
 		}
 	}
@@ -265,7 +277,7 @@ int main (int argc, char *argv[]) {
 					continue;
 				}
 				/*Reset L1 when L2 in IDLE State but L1 keeps sending API_MSG_TYPE_SUBFRAME_IND*/
-				else if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
+				else if (rcv_msg_id > 0) {
 					fapi_state = RESET_L1;
 					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
@@ -276,21 +288,32 @@ int main (int argc, char *argv[]) {
 		}
 		else if (fapi_state == RESET_L1) {
 			tx_len += prep_fapi_msg(API_MSG_TYPE_STOP_REQ);
-			if (wait_for_res == 1 && got_msg == 1) {
-				if (rcv_msg_id == API_MSG_TYPE_STOP_IND) {
-					fapi_state = IDLE;
-					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
-					wait_for_res = 0;
-					continue;
-				}
-				got_msg = 0;
-			}
+			fapi_state = IDLE;
+			LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+			// if (wait_for_res == 1 && got_msg == 1) {
+			// 	if (rcv_msg_id == API_MSG_TYPE_STOP_IND) {
+			// 		fapi_state = IDLE;
+			// 		LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+			// 		wait_for_res = 0;
+			// 		continue;
+			// 	}
+			// 	got_msg = 0;
+			// }
+			// got_msg = 0;
+			continue;
 		}
 		else if ((fapi_state == CONFIGURED) && (sent != 0)) {
 			tx_len += prep_fapi_msg(API_MSG_TYPE_CONFIG_REQ);
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_CONFIG_RSP) {
 					fapi_state = RUNNING;
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					wait_for_res = 0;
+					continue;
+				}
+				/*Reset L1 when L2 in IDLE State but L1 keeps sending API_MSG_TYPE_SUBFRAME_IND*/
+				else if (rcv_msg_id > 0){
+					fapi_state = RESET_L1;
 					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
@@ -317,8 +340,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		wait_for_res = 1;
-		// usleep(100000);
-		sleep(1);
+		usleep(wait_time);
 	}
 	return 0;
 }

@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-11-02 13:54:24
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 09:34:18
+* @Last Modified time: 2018-11-03 12:35:08
 */
 
 #include <arpa/inet.h>
@@ -23,7 +23,7 @@
 /*Socket file description*/
 static int tx_skt_fd = -1;
 static struct sockaddr_ll tx_skt_addr;
-static char dest_mac[6] = {0xda, 0x02, 0x03, 0x04, 0x05, 0x06};
+char dest_mac[6] = {0xda, 0x02, 0x03, 0x04, 0x05, 0x06};
 
 static struct ifreq tx_if_mac;
 char sendbuf[BUF_SIZ];
@@ -64,6 +64,8 @@ int lts_txskt_open() {
 	tx_skt_addr.sll_halen = ETH_ALEN;
 	/* Destination MAC */
 	memcpy(&tx_skt_addr.sll_addr[0], &dest_mac[0], ETH_ALEN);
+	LOG_INFO("Destination Mac:");
+	PRINT_MAC(dest_mac);
 	return 0;
 }
 

@@ -4,6 +4,7 @@
 		*(mac+4), *(mac+5));
 
 extern char sendbuf[BUF_SIZ];
+extern char dest_mac[6];
 
 int lts_txskt_open();
 int lts_txskt_send(char *eth_pkt_buf, int eth_pkt_len);

@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 10:49:26
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 09:55:35
+* @Last Modified time: 2018-11-03 11:32:16
 */
 
 #include <string.h>
@@ -56,6 +56,16 @@ char *get_fapi_msg_state_name(int state) {
 	if (state > FAPI_STATE_MAX)
 		return NULL;
 	return fapi_msg_state_name[state];
+}
+
+char *get_msg_type_name_(uint8_t msg_id) {
+	if ((msg_id < 0) || ((msg_id > 0xb) && (msg_id < 0x80)) 
+		|| (msg_id > 0x8b))
+		return NULL;
+	if (msg_id < 0x80)
+		return msg_type_1_name[msg_id];
+	else
+		return msg_type_2_name[msg_id & 0x0F];
 }
 
 int get_msg_type_name(uint8_t msg_id, char *name) {
@@ -128,9 +138,9 @@ int prep_fapi_msg(uint8_t msg_id) {
 	fapi_hdr->msgTypeId = msg_id;
 
 	switch(msg_id) {
-		/*PARAM.request: nobody msg, no vedor specific*/
+		/*PARAM.request, START.request, STOP.request: nobody msg, 
+		no vedor specific*/
 		case API_MSG_TYPE_PARAM_REQ:
-		/*START.request: nobody msg, no vendor specific*/
 		case API_MSG_TYPE_START_REQ:
 		case API_MSG_TYPE_STOP_REQ:
 			fapi_hdr->msgVdrSpecFlag = 0;
