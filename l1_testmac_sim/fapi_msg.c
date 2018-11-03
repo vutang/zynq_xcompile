@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 10:49:26
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-01 17:54:09
+* @Last Modified time: 2018-11-02 17:28:11
 */
 
 #include <string.h>
@@ -157,8 +157,8 @@ int handle_fapi_msg(char *buf) {
 	char msg_type_name[50];	
 
 	get_msg_type_name(fapi_hdr->msg_id, msg_type_name);
-	LOG_INFO("<---: %s", msg_type_name);
-	LOG_INFO("    : %s", fapi_hdr->msg_payload);
+	// LOG_INFO("<---: %s", msg_type_name);
+	// LOG_INFO("    : %s", fapi_hdr->msg_payload);
 
 	return fapi_hdr->msg_id;
 }

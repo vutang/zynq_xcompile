@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-01 17:58:30
+* @Last Modified time: 2018-11-03 08:35:26
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -19,15 +19,12 @@
 
 #include "logger.h"
 #include "fapi_msg.h"
+#include "lts_socket.h"
 
 #define LOGDIR "/home/root/l1_testmac_sim.log"
 #define ETHER_TYPE	0x5a5b
 #define DEFAULT_IF	"eth0"
 #define BUF_SIZ		1024
-
-#define PRINT_MAC(mac) LOG_INFO("%02x:%02x:%02x:%02x:%02x:%02x", \
-		*mac, *(mac+1), *(mac+2), *(mac+3), \
-		*(mac+4), *(mac+5));
 
 /*Send and Recv Buffer*/
 char sendbuf[BUF_SIZ], recvbuf[BUF_SIZ];
@@ -186,7 +183,7 @@ void rx_handler(void* arg) {
 			continue;
 		else {
 			rcv_msg_id = handle_fapi_msg(recvbuf + sizeof(struct ether_header));
-			LOG_INFO("got_msg id = %d", rcv_msg_id);
+			LOG_DEBUG("got_msg id = %d", rcv_msg_id);
 			if (rcv_msg_id < 0)
 				continue;
 			got_msg = 1;	
@@ -198,66 +195,26 @@ void rx_handler(void* arg) {
 }
 
 int main (int argc, char *argv[]) {
-	/*Socket file description*/
-	int sockfd_tx;
-	/*Ethernet header*/
-	struct ether_header *eh = (struct ether_header *) sendbuf;
-	struct sockaddr_ll socket_address;
-	struct ifreq tx_if_idx, tx_if_mac;
-
-	char *ether_payload_ptr = (char *) (sendbuf + sizeof(struct ether_header));
-
-	char ifName[IFNAMSIZ];
-
 	int tx_len = 0, i, ether_hdr_len;
+	int ret;
 
 	pthread_t rx_thread; /*Hold rx thread*/
+
+	ltePhyL2ApiMsgHdr_t *fapi_hdr = (ltePhyL2ApiMsgHdr_t *) (sendbuf + sizeof(struct ether_header));
+	char *ether_payload_ptr = (char *) (sendbuf + sizeof(struct ether_header));
 
 	config_log(LOGDIR, 0x1f, 3);
 	get_args(argc, argv);
 	testLog();
 
-	/* Get interface name */
-	strcpy(ifName, DEFAULT_IF);
-
-	/* Open RAW socket to send on */
-	if ((sockfd_tx = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1) {
-	    perror("socket");
+	ret = lts_txskt_open();
+	if (ret < 0) {
+		LOG_ERROR("Open TX Socket Fail");
+		return 1;
 	}
 
-	/* Get the index of the interface to send on */
-	memset(&tx_if_idx, 0, sizeof(struct ifreq));
-	strncpy(tx_if_idx.ifr_name, ifName, IFNAMSIZ-1);
-	if (ioctl(sockfd_tx, SIOCGIFINDEX, &tx_if_idx) < 0)
-	    perror("SIOCGIFINDEX");
-
-	/* Get the MAC address of the interface to send on */
-	memset(&tx_if_mac, 0, sizeof(struct ifreq));
-	strncpy(tx_if_mac.ifr_name, ifName, IFNAMSIZ-1);
-	if (ioctl(sockfd_tx, SIOCGIFHWADDR, &tx_if_mac) < 0)
-	    perror("SIOCGIFHWADDR");
-
-	/* Construct the Ethernet header */
+	/* Prepare send buf */
 	memset(sendbuf, 0, BUF_SIZ);
-	/* Ethernet header */
-	memcpy(&eh->ether_shost[0], &tx_if_mac.ifr_hwaddr.sa_data[0], ETH_ALEN);
-	LOG_INFO("SRC mac: ");
-	PRINT_MAC(&eh->ether_shost[0]);
-	memcpy(&eh->ether_dhost[0], &dest_mac[0], ETH_ALEN);
-	LOG_INFO("DST mac: ");
-	PRINT_MAC(&eh->ether_dhost[0]);
-
-	/* Ethertype field */
-	// eh->ether_type = htons(ETH_P_IP);
-	eh->ether_type = htons(ETHER_TYPE);
-
-	/* Index of the network device */
-	socket_address.sll_ifindex = tx_if_idx.ifr_ifindex;
-	/* Address length*/
-	socket_address.sll_halen = ETH_ALEN;
-	/* Destination MAC */
-	memcpy(&socket_address.sll_addr[0], &dest_mac[0], ETH_ALEN);
-	/* Send packet */
 
 	if (g_test_tx == 1) {
 		ether_hdr_len = sizeof(struct ether_header);
@@ -271,10 +228,9 @@ int main (int argc, char *argv[]) {
 		for (i = 0; i < 10; i++) {
 			LOG_INFO("Send test msg (%d) to: ", tx_len);
 			PRINT_MAC(dest_mac);
-			if (sendto(sockfd_tx, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, 
-				sizeof(struct sockaddr_ll)) < 0) {
-				LOG_ERROR("Send msg failed");
-			}
+			ret = lts_txskt_send(sendbuf, tx_len);
+			if (ret < 0)
+				LOG_WARN("Send MSG Fail");
 			sleep(1);
 		}
 		exit(0);
@@ -292,19 +248,28 @@ int main (int argc, char *argv[]) {
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_PARAM_RSP) {
 					fapi_state = CONFIGURED;
-					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					wait_for_res = 0;
+					continue;
+				}
+				else if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
+					fapi_state = RESET_L1;
+					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
 				got_msg = 0;
 			}
 		}
+		else if (fapi_state == RESET_L1) {
+
+		}
 		else if ((fapi_state == CONFIGURED) && (sent != 0)) {
 			tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_CONFIG_REQ);
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_CONFIG_RSP) {
 					fapi_state = RUNNING;
-					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
@@ -316,7 +281,7 @@ int main (int argc, char *argv[]) {
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
 					fapi_state = WAIT_INDICATION;
-					LOG_INFO("Change state to %d", fapi_state);
+					LOG_DEBUG("Change state to %d", fapi_state);
 					wait_for_res = 0;
 					continue;
 				}
@@ -325,20 +290,17 @@ int main (int argc, char *argv[]) {
 		}
 		else if ((fapi_state == WAIT_INDICATION)) {
 			if ((got_msg == 1) && (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND)) {
-				LOG_INFO("Get Subframe indication");
+				// LOG_INFO("Get Subframe indication");
 				tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_DLCFG_REQ);
 				got_msg = 0;
 			}
 		}
 
-		LOG_INFO("Send msg (%d) to: ", tx_len);
-		PRINT_MAC(dest_mac);
-		if (sendto(sockfd_tx, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, 
-			sizeof(struct sockaddr_ll)) < 0) {
-			LOG_ERROR("Send msg failed");
-		}
+		ret = lts_txskt_send(sendbuf, tx_len);
+		if (ret < 0)
+			LOG_WARN("Send MSG Fail");
 		wait_for_res = 1;
-		sleep(1);
+		usleep(10000);
 	}
 	return 0;
 }

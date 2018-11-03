@@ -7,5 +7,5 @@ TCP Dump Useful commands:
 
 	https://www.rationallyparanoid.com/articles/tcpdump.html
 
-* tcpdump -e -i eth0 ether dst b0:83:fe:bb:36:0b
+* tcpdump -e -i eth0 ether dst da:02:03:04:05:06
 	dump in zynq

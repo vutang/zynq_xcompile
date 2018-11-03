@@ -58,6 +58,7 @@ enum fapi_msg_send_st {
 	CONFIGURED,
 	RUNNING,
 	WAIT_INDICATION,
+	RESET_L1,
 	FAPI_STATE_MAX
 };
 
