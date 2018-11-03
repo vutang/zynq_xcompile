@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 08:35:26
+* @Last Modified time: 2018-11-03 09:52:02
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -27,7 +27,7 @@
 #define BUF_SIZ		1024
 
 /*Send and Recv Buffer*/
-char sendbuf[BUF_SIZ], recvbuf[BUF_SIZ];
+char recvbuf[BUF_SIZ];
 
 /*MAC list:
 	b0:83:fe:bb:36:0b: vux's PC eth0
@@ -41,6 +41,7 @@ const char eth0_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x1E, 0x53};
 const char eth1_mac[6] = {0x00, 0x0A, 0x35, 0x00, 0x00, 0x01};
 
 int8_t g_dstmac_change = 0, g_test_tx = 0; 
+int8_t g_debug_flag = 0;
 int rcv_msg_id = -1;
 int got_msg = 0;
 
@@ -97,12 +98,13 @@ void get_args(int argc, char **argv) {
 		static struct option long_options[] = {
 			{"help", no_argument, 0, 'h'},
 			{"test", no_argument, 0, 't'},
-			{"dest", required_argument, 0, 'd'},
+			{"dest", required_argument, 0, 'D'},
+			{"debug", no_argument, 0, 'd'},
 			{0, 0, 0, 0}
 		};
 	      /* getopt_long stores the option index here. */
 		int option_index = 0;
-		c = getopt_long (argc, argv, "htd:", long_options, &option_index);
+		c = getopt_long (argc, argv, "htD:d", long_options, &option_index);
 		/* Detect the end of the options. */
 		if (c == -1)
 			break;
@@ -115,7 +117,7 @@ void get_args(int argc, char **argv) {
 			case 't':
 				g_test_tx = 1;
 				break;
-			case 'd':
+			case 'D':
 				printf ("option -d with vl `%s'\n", optarg);
 				if (is_valid_macaddr(optarg, dest_mac)) {
 					PRINT_MAC(dest_mac);
@@ -125,6 +127,10 @@ void get_args(int argc, char **argv) {
 					exit(0);
 				}
 
+				break;
+			case 'd':
+				printf("Debug flag\n");
+				g_debug_flag = 1;
 				break;
 			case '?':
 				/* getopt_long already printed an error message. */
@@ -200,18 +206,24 @@ int main (int argc, char *argv[]) {
 
 	pthread_t rx_thread; /*Hold rx thread*/
 
-	ltePhyL2ApiMsgHdr_t *fapi_hdr = (ltePhyL2ApiMsgHdr_t *) (sendbuf + sizeof(struct ether_header));
+	ltePhyL2ApiMsgHdr_t *fapi_hdr = \
+		(ltePhyL2ApiMsgHdr_t *) (sendbuf + sizeof(struct ether_header));
 	char *ether_payload_ptr = (char *) (sendbuf + sizeof(struct ether_header));
 
-	config_log(LOGDIR, 0x1f, 3);
 	get_args(argc, argv);
+
+	if (g_debug_flag) {
+		LOG_WARN("Turn on log DEBUG Level");
+		config_log(LOGDIR, 0x1f, 3);
+	}
+	else
+		config_log(LOGDIR, 0x1e, 3);
 	testLog();
 
+	LOG_INFO("Open tx socket");
 	ret = lts_txskt_open();
-	if (ret < 0) {
-		LOG_ERROR("Open TX Socket Fail");
+	if (ret < 0) 
 		return 1;
-	}
 
 	/* Prepare send buf */
 	memset(sendbuf, 0, BUF_SIZ);
@@ -244,17 +256,18 @@ int main (int argc, char *argv[]) {
 	while (1) {
 		tx_len = sizeof(struct ether_header);
 		if (fapi_state == IDLE) {
-			tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_PARAM_REQ);
+			tx_len += prep_fapi_msg(API_MSG_TYPE_PARAM_REQ);
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_PARAM_RSP) {
 					fapi_state = CONFIGURED;
-					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
+				/*Reset L1 when L2 in IDLE State but L1 keeps sending API_MSG_TYPE_SUBFRAME_IND*/
 				else if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
 					fapi_state = RESET_L1;
-					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
@@ -262,14 +275,23 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		else if (fapi_state == RESET_L1) {
-
+			tx_len += prep_fapi_msg(API_MSG_TYPE_STOP_REQ);
+			if (wait_for_res == 1 && got_msg == 1) {
+				if (rcv_msg_id == API_MSG_TYPE_STOP_IND) {
+					fapi_state = IDLE;
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					wait_for_res = 0;
+					continue;
+				}
+				got_msg = 0;
+			}
 		}
 		else if ((fapi_state == CONFIGURED) && (sent != 0)) {
-			tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_CONFIG_REQ);
+			tx_len += prep_fapi_msg(API_MSG_TYPE_CONFIG_REQ);
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_CONFIG_RSP) {
 					fapi_state = RUNNING;
-					LOG_DEBUG("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
@@ -277,11 +299,11 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		else if ((fapi_state == RUNNING) && (sent != 0)) {
-			tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_START_REQ);
+			tx_len += prep_fapi_msg(API_MSG_TYPE_START_REQ);
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
 					fapi_state = WAIT_INDICATION;
-					LOG_DEBUG("Change state to %d", fapi_state);
+					LOG_INFO("Change state to %d", fapi_state);
 					wait_for_res = 0;
 					continue;
 				}
@@ -290,17 +312,13 @@ int main (int argc, char *argv[]) {
 		}
 		else if ((fapi_state == WAIT_INDICATION)) {
 			if ((got_msg == 1) && (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND)) {
-				// LOG_INFO("Get Subframe indication");
-				tx_len += prep_fapi_msg(sendbuf + sizeof(struct ether_header), API_MSG_TYPE_DLCFG_REQ);
+				tx_len += prep_fapi_msg(API_MSG_TYPE_DLCFG_REQ);
 				got_msg = 0;
 			}
 		}
-
-		ret = lts_txskt_send(sendbuf, tx_len);
-		if (ret < 0)
-			LOG_WARN("Send MSG Fail");
 		wait_for_res = 1;
-		usleep(10000);
+		// usleep(100000);
+		sleep(1);
 	}
 	return 0;
 }

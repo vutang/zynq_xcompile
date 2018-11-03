@@ -2,13 +2,16 @@
 * @Author: vutang
 * @Date:   2018-10-23 10:49:26
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-02 17:28:11
+* @Last Modified time: 2018-11-03 09:55:35
 */
 
 #include <string.h>
 #include <sys/time.h>
+#include <netinet/ether.h>
+
 #include "fapi_msg.h"
 #include "logger.h"
+#include "lts_socket.h"
 
 char msg_type_1_name[][50]  = {
 	"PARAM_REQ",
@@ -44,7 +47,8 @@ char fapi_msg_state_name[][50] = {
 	"IDLE",
 	"CONFIGURED",
 	"RUNNING",
-	"WAIT_INDICATION"	
+	"WAIT_INDICATION",
+	"RESET_L1"	
 };
 
 /*Get FAPI State*/
@@ -113,11 +117,12 @@ int prep_fpga_dlconfig_req(char *buf) {
 		sizeof(ltePhyL2ApiDlConfigVndrSpecMsg_t));	
 }
 
-int prep_fapi_msg(char *buf, uint8_t msg_id) {
+int prep_fapi_msg(uint8_t msg_id) {
 	char msg_type_name[50], time[50];
-	int fapi_msg_sz = -1;
+	int fapi_msg_sz = -1, tx_len = 0, ret;
 	// struct fapi_header *fapi_hdr = (struct fapi_header *) buf;
-	ltePhyL2ApiMsgHdr_t *fapi_hdr = (ltePhyL2ApiMsgHdr_t *) buf;
+	ltePhyL2ApiMsgHdr_t *fapi_hdr = \
+		(ltePhyL2ApiMsgHdr_t *) (sendbuf + sizeof(struct ether_header));
 
 	// fapi_hdr->fapi_type = 0xAA;
 	fapi_hdr->msgTypeId = msg_id;
@@ -127,27 +132,28 @@ int prep_fapi_msg(char *buf, uint8_t msg_id) {
 		case API_MSG_TYPE_PARAM_REQ:
 		/*START.request: nobody msg, no vendor specific*/
 		case API_MSG_TYPE_START_REQ:
+		case API_MSG_TYPE_STOP_REQ:
 			fapi_hdr->msgVdrSpecFlag = 0;
 			fapi_hdr->msgBodyLength = 0;
 			fapi_msg_sz = sizeof(ltePhyL2ApiMsgHdr_t);
 			break;
 		case API_MSG_TYPE_CONFIG_REQ:
-			fapi_msg_sz = prep_fpga_config_req(buf);
+			fapi_msg_sz = prep_fpga_config_req((char *) (sendbuf + sizeof(struct ether_header)));
 			break;
 		case API_MSG_TYPE_DLCFG_REQ: 
-			fapi_msg_sz = prep_fpga_dlconfig_req(buf);
-
+			fapi_msg_sz = prep_fpga_dlconfig_req((char *) (sendbuf + sizeof(struct ether_header)));
+		default:
+			LOG_ERROR("Unknown msg");
+			return -1;
 	}
 
-	// get_msg_type_name(msg_id, msg_type_name);
-	// LOG_INFO("--->: %s", msg_type_name);
-	// gettimetostring(time);
-
-	// sprintf(msg_type_name, "%s-%s", msg_type_name, time);
-
-	// fapi_hdr->msg_len = strlen(msg_type_name);
-	// memcpy(&fapi_hdr->msg_payload[0], &msg_type_name[0], strlen(msg_type_name));
-
+	tx_len = fapi_msg_sz + sizeof(struct ether_header);
+	LOG_DEBUG("Send fapi msg id %d", fapi_hdr->msgTypeId);
+	ret = lts_txskt_send(sendbuf, tx_len);
+	if (ret < 0) {
+		LOG_ERROR("Send msg fail");
+		return 1;
+	}
 	return fapi_msg_sz;
 }
 
@@ -155,10 +161,5 @@ int prep_fapi_msg(char *buf, uint8_t msg_id) {
 int handle_fapi_msg(char *buf) {
 	struct fapi_header *fapi_hdr = (struct fapi_header *) buf;
 	char msg_type_name[50];	
-
-	get_msg_type_name(fapi_hdr->msg_id, msg_type_name);
-	// LOG_INFO("<---: %s", msg_type_name);
-	// LOG_INFO("    : %s", fapi_hdr->msg_payload);
-
 	return fapi_hdr->msg_id;
 }

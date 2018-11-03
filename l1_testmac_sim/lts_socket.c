@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-11-02 13:54:24
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-02 17:27:45
+* @Last Modified time: 2018-11-03 09:34:18
 */
 
 #include <arpa/inet.h>
@@ -10,7 +10,9 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <netinet/ether.h>
+
 #include <string.h>
+#include <errno.h>
 
 #include "logger.h"
 #include "lts_socket.h"
@@ -24,6 +26,7 @@ static struct sockaddr_ll tx_skt_addr;
 static char dest_mac[6] = {0xda, 0x02, 0x03, 0x04, 0x05, 0x06};
 
 static struct ifreq tx_if_mac;
+char sendbuf[BUF_SIZ];
 
 int lts_txskt_open() {
 	/*IFNAMESIZ is defined in net/if.h*/
@@ -32,7 +35,7 @@ int lts_txskt_open() {
 
 	/* Open RAW socket to send on */
 	if ((tx_skt_fd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1) {
-	    LOG_ERROR("Create skt fail");
+	    LOG_ERROR("Create skt fail, errno: %s", strerror(errno));
 	    return -1;
 	}
 
@@ -43,7 +46,7 @@ int lts_txskt_open() {
 	memset(&tx_if_idx, 0, sizeof(struct ifreq));
 	strncpy(tx_if_idx.ifr_name, ifName, IFNAMSIZ-1);
 	if (ioctl(tx_skt_fd, SIOCGIFINDEX, &tx_if_idx) < 0) {
-	    LOG_ERROR("SIOCGIFINDEX: Get interface index fail");
+	    LOG_ERROR("SIOCGIFINDEX: Get interface index fail, errno: %s", strerror(errno));
 	    return -1;
 	}
 
@@ -51,7 +54,7 @@ int lts_txskt_open() {
 	memset(&tx_if_mac, 0, sizeof(struct ifreq));
 	strncpy(tx_if_mac.ifr_name, ifName, IFNAMSIZ-1);
 	if (ioctl(tx_skt_fd, SIOCGIFHWADDR, &tx_if_mac) < 0) {
-	    LOG_ERROR("SIOCGIFHWADDR: Get interface MAC addr fail");
+	    LOG_ERROR("SIOCGIFHWADDR: Get interface MAC addr fail, errno: %s", strerror(errno));
 	    return -1;
 	}
 
@@ -82,7 +85,7 @@ int lts_txskt_send(char *eth_pkt_buf, int eth_pkt_len) {
 	}
 	if (sendto(tx_skt_fd, eth_pkt_buf, eth_pkt_len, 0, (struct sockaddr*)&tx_skt_addr, 
 		sizeof(struct sockaddr_ll)) < 0) {
-		LOG_ERROR("Send msg failed");
+		LOG_ERROR("Send msg failed, errno: %s", strerror(errno));
 		return -2;
 	}
 	return 0;
