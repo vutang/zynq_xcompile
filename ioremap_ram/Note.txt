@@ -1,0 +1,2 @@
+Kernel Bootargs Default
+	setenv bootargs console=ttyPS0,115200 earlyprintk root=mtd:jffs2 rw rootfstype=jffs2
