@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 10:49:26
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 11:32:16
+* @Last Modified time: 2018-11-05 10:21:51
 */
 
 #include <string.h>
@@ -152,13 +152,14 @@ int prep_fapi_msg(uint8_t msg_id) {
 			break;
 		case API_MSG_TYPE_DLCFG_REQ: 
 			fapi_msg_sz = prep_fpga_dlconfig_req((char *) (sendbuf + sizeof(struct ether_header)));
+			break;
 		default:
-			LOG_ERROR("Unknown msg");
+			LOG_ERROR("Unknown msg id (%d)", msg_id);
 			return -1;
 	}
 
 	tx_len = fapi_msg_sz + sizeof(struct ether_header);
-	LOG_DEBUG("Send fapi msg id %d", fapi_hdr->msgTypeId);
+	LOG_DEBUG("--> fapi msg id 0x%x (%s)", fapi_hdr->msgTypeId, get_msg_type_name_(fapi_hdr->msgTypeId));
 	ret = lts_txskt_send(sendbuf, tx_len);
 	if (ret < 0) {
 		LOG_ERROR("Send msg fail");

@@ -2,7 +2,7 @@
 * @Author: vutang
 * @Date:   2018-10-23 09:23:20
 * @Last Modified by:   vutang
-* @Last Modified time: 2018-11-03 12:36:10
+* @Last Modified time: 2018-11-05 11:33:59
 */
 #include <arpa/inet.h>
 #include <linux/if_packet.h>
@@ -45,9 +45,10 @@ int8_t g_debug_flag = 0;
 int rcv_msg_id = -1;
 int got_msg = 0;
 int wait_time = 1000000;
+int init_state = -1;
 
 /*Hold main FAPI State*/
-int fapi_state = IDLE;
+int fapi_state = CONFIGURED;
 
 void testLog() {
 	printf("Test LOG configuration\n");
@@ -90,7 +91,9 @@ void pri_usage(int argc, char **argv) {
 	printf("\t--help: print usage\n");
 	printf("\t--sleep-time/-t <time in usecond>: setting processing time\n");
 	printf("\t--debug/-d: printf debug\n");
-	printf("\t--dest/-D <MAC Address>; default destmac is da:02:03:04:05:06\n");
+	printf("\t--dest/-D <MAC Address>: default destmac is da:02:03:04:05:06\n");
+	printf("\t--init-state/-i <state number>: Set init state for FSM manual");
+	printf("\t                              : set init state for FSM manual");
 	// printf("\t--test/-t\n");
 }
 
@@ -104,11 +107,12 @@ void get_args(int argc, char **argv) {
 			{"dest", required_argument, 0, 'D'},
 			{"debug", no_argument, 0, 'd'},
 			{"sleep-time", required_argument, 0, 't'},
+			{"init-state", required_argument, 0, 'i'},
 			{0, 0, 0, 0}
 		};
 	      /* getopt_long stores the option index here. */
 		int option_index = 0;
-		c = getopt_long (argc, argv, "hD:dt:", long_options, &option_index);
+		c = getopt_long (argc, argv, "hD:dt:i:", long_options, &option_index);
 		/* Detect the end of the options. */
 		if (c == -1)
 			break;
@@ -138,6 +142,15 @@ void get_args(int argc, char **argv) {
 			case 't':
 				printf("Setup sleep time in FSM, optarg: %s\n", optarg);
 				wait_time = strtol(optarg, NULL, 0);
+				break;
+			case 'i':
+				printf("Setup init state, optarg: %s\n", optarg);
+				init_state = strtol(optarg, NULL, 0);
+				if (init_state < 0 || init_state > FAPI_STATE_MAX) {
+					printf("Invalide argument\n");
+					exit(0);
+				}
+				fapi_state = init_state;
 				break;
 			case '?':
 				/* getopt_long already printed an error message. */
@@ -265,6 +278,13 @@ int main (int argc, char *argv[]) {
 
 	int sent, wait_for_res = 0;
 
+	// LOG_INFO("Reset L1");
+	// tx_len += prep_fapi_msg(API_MSG_TYPE_STOP_REQ);
+	// usleep(10000);
+	// tx_len += prep_fapi_msg(API_MSG_TYPE_STOP_REQ);
+	// usleep(10000);
+
+	LOG_INFO("Start FSM at %s", get_fapi_msg_state_name(fapi_state));
 	while (1) {
 		tx_len = sizeof(struct ether_header);
 		if (fapi_state == IDLE) {
@@ -277,12 +297,12 @@ int main (int argc, char *argv[]) {
 					continue;
 				}
 				/*Reset L1 when L2 in IDLE State but L1 keeps sending API_MSG_TYPE_SUBFRAME_IND*/
-				else if (rcv_msg_id > 0) {
-					fapi_state = RESET_L1;
-					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
-					wait_for_res = 0;
-					continue;
-				}
+				// else if (rcv_msg_id > 0) {
+				// 	fapi_state = RESET_L1;
+				// 	LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+				// 	wait_for_res = 0;
+				// 	continue;
+				// }
 				got_msg = 0;
 			}
 		}
@@ -290,17 +310,15 @@ int main (int argc, char *argv[]) {
 			tx_len += prep_fapi_msg(API_MSG_TYPE_STOP_REQ);
 			fapi_state = IDLE;
 			LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
-			// if (wait_for_res == 1 && got_msg == 1) {
-			// 	if (rcv_msg_id == API_MSG_TYPE_STOP_IND) {
-			// 		fapi_state = IDLE;
-			// 		LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
-			// 		wait_for_res = 0;
-			// 		continue;
-			// 	}
-			// 	got_msg = 0;
-			// }
-			// got_msg = 0;
-			continue;
+			if (wait_for_res == 1 && got_msg == 1) {
+				if (rcv_msg_id == API_MSG_TYPE_STOP_IND) {
+					fapi_state = IDLE;
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+					wait_for_res = 0;
+					continue;
+				}
+				got_msg = 0;
+			}
 		}
 		else if ((fapi_state == CONFIGURED) && (sent != 0)) {
 			tx_len += prep_fapi_msg(API_MSG_TYPE_CONFIG_REQ);
@@ -312,12 +330,12 @@ int main (int argc, char *argv[]) {
 					continue;
 				}
 				/*Reset L1 when L2 in IDLE State but L1 keeps sending API_MSG_TYPE_SUBFRAME_IND*/
-				else if (rcv_msg_id > 0){
-					fapi_state = RESET_L1;
-					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
-					wait_for_res = 0;
-					continue;
-				}
+				// else if (rcv_msg_id > 0){
+				// 	fapi_state = RESET_L1;
+				// 	LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
+				// 	wait_for_res = 0;
+				// 	continue;
+				// }
 				got_msg = 0;
 			}
 		}
@@ -326,7 +344,7 @@ int main (int argc, char *argv[]) {
 			if (wait_for_res == 1 && got_msg == 1) {
 				if (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND) {
 					fapi_state = WAIT_INDICATION;
-					LOG_INFO("Change state to %d", fapi_state);
+					LOG_INFO("Change state to %s", get_fapi_msg_state_name(fapi_state));
 					wait_for_res = 0;
 					continue;
 				}
@@ -337,6 +355,7 @@ int main (int argc, char *argv[]) {
 			if ((got_msg == 1) && (rcv_msg_id == API_MSG_TYPE_SUBFRAME_IND)) {
 				tx_len += prep_fapi_msg(API_MSG_TYPE_DLCFG_REQ);
 				got_msg = 0;
+				continue;
 			}
 		}
 		wait_for_res = 1;
